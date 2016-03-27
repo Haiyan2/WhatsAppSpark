@@ -6,7 +6,7 @@ import java.sql.Timestamp;
 /**
  * WhatsAppMessage JavaBean.
  * 
- * @author Haiyan
+ * @author Yan2
  *
  */
 public class WhatsAppMessage implements Serializable {

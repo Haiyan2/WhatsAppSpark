@@ -8,10 +8,10 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collector;
 import java.util.stream.Stream;
 
 import org.apache.spark.SparkConf;
@@ -24,7 +24,7 @@ import org.apache.spark.sql.SQLContext;
 /**
  * Main class to load and process WhatsApp messages with Spark.
  * 
- * @author Haiyan
+ * @author Yan2
  *
  */
 public class WhatsAppSparkProcessor implements Serializable {
@@ -77,27 +77,40 @@ public class WhatsAppSparkProcessor implements Serializable {
         SparkConf conf = new SparkConf().setAppName("SimpleApp").setMaster("local[4]");
         JavaSparkContext sc = new JavaSparkContext(conf);
         SQLContext sqlContext = new SQLContext(sc);
-        List<WhatsAppMessage> messageList = new ArrayList<>();
+
+        Collector<String, List<WhatsAppMessage>, List<WhatsAppMessage>> whatsAppMessageCollector = Collector.of(
+
+                // Supplier.
+                () -> new ArrayList<>(),
+
+                // Accumulator.
+                (messageList, line) -> {
+                    Matcher m = MESSAGE_PATTERN.matcher(line);
+
+                    if (m.matches()) {
+                        WhatsAppMessage message = createWhatsAppMessage(m.group(1), m.group(2), m.group(3));
+                        messageList.add(message);
+                    } else {
+                        if (!messageList.isEmpty()) {
+                            WhatsAppMessage prevMessage = messageList.get(messageList.size() - 1);
+                            prevMessage.setMessage(prevMessage.getMessage() + MESSAGE_LINE_SEPARATOR + line);
+                            prevMessage.setLineCount(prevMessage.getLineCount() + 1);
+                        }
+                    }
+
+                } ,
+
+                // Combiner
+                (list1, list2) -> {
+                    list1.addAll(list2);
+                    System.out.format("Combiner");
+                    return list1;
+                });
+
+        List<WhatsAppMessage> messageList = null;
 
         try (Stream<String> inputLinesStream = Files.lines(FileSystems.getDefault().getPath(inputFile))) {
-
-            Iterator<String> it = inputLinesStream.iterator();
-            while (it.hasNext()) {
-                String line = it.next();
-                Matcher m = MESSAGE_PATTERN.matcher(line);
-
-                if (m.matches()) {
-                    WhatsAppMessage message = createWhatsAppMessage(m.group(1), m.group(2), m.group(3));
-                    messageList.add(message);
-                } else {
-                    if (!messageList.isEmpty()) {
-                        WhatsAppMessage prevMessage = messageList.get(messageList.size() - 1);
-                        prevMessage.setMessage(prevMessage.getMessage() + MESSAGE_LINE_SEPARATOR + line);
-                        prevMessage.setLineCount(prevMessage.getLineCount() + 1);
-                    }
-                }
-            }
-
+            messageList = inputLinesStream.collect(whatsAppMessageCollector);
         } catch (IOException e) {
             e.printStackTrace();
         }
